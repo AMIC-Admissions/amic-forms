@@ -1,0 +1,1 @@
+async function generatePDF(){console.log("pdf");}
