@@ -214,17 +214,19 @@ function getSignedImage(field) {
 }
 
 function buildSignatureMetadata(field, image, signedAt) {
-  return Object.assign({}, field.metadata, {
-    signatureImage: image,
-    signature: {
-      fieldId: field.id,
-      fieldKey: field.key,
-      image,
-      mimeType: "image/png",
-      signedAt,
-      signerName: values.parent || "",
-    },
-  });
+  const metadata = Object.assign({}, field.metadata);
+  delete metadata.signatureImage;
+
+  metadata.signature = {
+    fieldId: field.id,
+    fieldKey: field.key,
+    image,
+    mimeType: "image/png",
+    signedAt,
+    signerName: values.parent || "",
+  };
+
+  return metadata;
 }
 
 async function patchField(field, payload) {
@@ -245,6 +247,10 @@ async function patchField(field, payload) {
 async function saveSignatureField(field) {
   const signedAt = new Date().toISOString();
   const image = getSignedImage(field);
+
+  if (!field.id) {
+    throw new Error(`${field.metadata.label || "Signature"} is missing a backend field id.`);
+  }
 
   if (!image) {
     throw new Error(`${field.metadata.label || "Signature"} is required.`);
