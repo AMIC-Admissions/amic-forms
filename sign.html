@@ -28,54 +28,102 @@
       padding: 6px 8px;
     }
 
-    .signature-list {
-      display: grid;
-      gap: 16px;
-      max-width: 760px;
+    .toolbar input[type="file"] {
+      min-width: 260px;
     }
 
-    .signature-card {
-      border: 1px solid #cbd5e1;
-      background: #fff;
-    }
-
-    .signature-card.invalid {
-      border-color: #dc2626;
-    }
-
-    .signature-card header {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 10px 12px;
-      border-bottom: 1px solid #e2e8f0;
-    }
-
-    .signature-title {
-      font-weight: 700;
-    }
-
-    .signature-meta {
-      color: #52616f;
-      font-size: 13px;
-    }
-
-    .signature-pad-wrap {
+    #pdf-container {
+      width: 100%;
+      min-height: 240px;
+      overflow-x: auto;
       padding: 12px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+    }
+
+    .pdf-pages {
+      display: grid;
+      gap: 18px;
+      justify-items: start;
+    }
+
+    .pdf-page {
+      position: relative;
+      overflow: hidden;
+      background: #fff;
+      box-shadow: 0 1px 6px rgba(15, 23, 42, 0.18);
+    }
+
+    .pdf-page-canvas {
+      display: block;
+    }
+
+    .field-layer {
+      position: absolute;
+      inset: 0;
+    }
+
+    .sign-field {
+      position: absolute;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 20px;
+      min-height: 20px;
+      padding: 2px;
+      border: 1px solid rgba(37, 99, 235, 0.6);
+      background: rgba(255, 255, 255, 0.86);
+      overflow: visible;
+    }
+
+    .sign-field.invalid {
+      border-color: #dc2626;
+      background: rgba(254, 242, 242, 0.92);
+    }
+
+    .sign-field-label {
+      flex: 0 0 auto;
+      overflow: hidden;
+      color: #334155;
+      font-size: 11px;
+      line-height: 1.1;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .field-control {
+      flex: 1 1 auto;
+      min-width: 0;
+      width: 100%;
+      height: 100%;
+      border: 1px solid #94a3b8;
+      border-radius: 0;
+      background: #fff;
+      font: 14px Arial, sans-serif;
+    }
+
+    .field-checkbox {
+      align-self: center;
+      width: 18px;
+      height: 18px;
+      margin: auto;
     }
 
     .signature-pad {
+      flex: 1 1 auto;
       display: block;
       width: 100%;
-      height: 180px;
+      min-height: 34px;
       border: 1px solid #94a3b8;
       background: #fff;
       touch-action: none;
     }
 
     .signature-preview {
+      flex: 1 1 auto;
       width: 100%;
-      height: 180px;
+      min-height: 34px;
       border: 1px solid #94a3b8;
       background: #fff;
     }
@@ -86,10 +134,10 @@
       object-fit: contain;
     }
 
-    .signature-actions {
+    .field-actions {
       display: flex;
       gap: 8px;
-      padding: 0 12px 12px;
+      align-items: center;
     }
 
     .signed-note {
@@ -104,7 +152,14 @@
     }
 
     .field-error {
-      padding: 0 12px 12px;
+      position: absolute;
+      left: 0;
+      top: calc(100% + 2px);
+      min-width: 160px;
+      padding: 3px 4px;
+      background: #fff;
+      border: 1px solid #fecaca;
+      line-height: 1.2;
     }
 
     .form-error {
@@ -112,7 +167,6 @@
     }
 
     .message {
-      max-width: 760px;
       padding: 16px;
       color: #52616f;
       border: 1px solid #e2e8f0;
@@ -123,13 +177,16 @@
 <body>
   <h3>Sign</h3>
   <div class="toolbar">
+    <input id="pdf-file" type="file" accept="application/pdf" aria-label="PDF file">
     <input data-key="parent" oninput="update('parent', this.value)" placeholder="Parent">
     <button onclick="submitForm()">Submit</button>
   </div>
   <div id="form-error" class="form-error" hidden></div>
-  <div id="signature-fields" class="signature-list">
-    <div class="message">Loading signature fields...</div>
+  <div id="pdf-container">
+    <div class="message">Select a PDF to render fields.</div>
   </div>
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <script src="pdf.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/signature_pad"></script>
   <script src="sign.js"></script>
 </body>
