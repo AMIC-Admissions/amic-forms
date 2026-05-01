@@ -1,8 +1,111 @@
-<!DOCTYPE html><html><body>
-<h3>Builder</h3>
-<button onclick="addField('text')">Text</button>
-<button onclick="addField('signature')">Signature</button>
-<div id="canvas" style="height:500px;border:1px solid #000;position:relative"></div>
-<button onclick="save()">Save</button>
-<script src="builder.js"></script>
-</body></html>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AMIC Builder</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 16px;
+      font-family: Arial, sans-serif;
+      color: #1f2933;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .toolbar label {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    #pdf-container {
+      width: 100%;
+      min-height: 240px;
+      overflow: auto;
+      padding: 16px;
+      border: 1px solid #000;
+      background: #e5e7eb;
+      position: relative;
+    }
+
+    .pdf-pages {
+      display: flex;
+      width: max-content;
+      max-width: 100%;
+      flex-direction: column;
+      gap: 16px;
+      align-items: flex-start;
+    }
+
+    .pdf-page {
+      position: relative;
+      flex: none;
+      background: #fff;
+      box-shadow: 0 1px 4px rgba(15, 23, 42, 0.25);
+    }
+
+    .pdf-page-canvas {
+      display: block;
+    }
+
+    .field-layer {
+      position: absolute;
+      inset: 0;
+    }
+
+    .amic-field {
+      position: absolute;
+      z-index: 2;
+      min-width: 80px;
+      min-height: 24px;
+      padding: 4px 8px;
+      border: 1px solid #1d4ed8;
+      background: rgba(37, 99, 235, 0.9);
+      color: #fff;
+      font-size: 14px;
+      line-height: 1.2;
+      cursor: move;
+      user-select: none;
+    }
+
+    .amic-field-signature {
+      min-width: 160px;
+      min-height: 48px;
+    }
+
+    .pdf-message,
+    .empty-state {
+      padding: 24px;
+      color: #52616f;
+      background: #fff;
+    }
+  </style>
+</head>
+<body>
+  <h3>Builder</h3>
+  <div class="toolbar">
+    <label>PDF <input type="file" id="pdf-file" accept="application/pdf"></label>
+    <label>Page <select id="field-page" disabled></select></label>
+    <button onclick="addField('text')">Text</button>
+    <button onclick="addField('signature')">Signature</button>
+    <button onclick="save()">Save</button>
+  </div>
+  <div id="pdf-container">
+    <div class="empty-state">Select a PDF to render pages.</div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <script src="pdf.js"></script>
+  <script src="builder.js"></script>
+</body>
+</html>
