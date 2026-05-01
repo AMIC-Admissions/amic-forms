@@ -10,6 +10,11 @@ const FIELD_COLUMNS = [
   "amic_metadata",
 ];
 
+const SIGNATURE_MAX_WIDTH = 600;
+const SIGNATURE_MAX_HEIGHT = 300;
+const SIGNATURE_MAX_BYTES = 250 * 1024;
+const SIGNATURE_JPEG_QUALITY = 0.82;
+
 document.addEventListener("DOMContentLoaded", () => {
   const documentId = getDocumentId();
 
@@ -199,29 +204,93 @@ function resizeSignatureCanvas(canvas) {
   canvas.getContext("2d").scale(ratio, ratio);
 }
 
-function getSignedImage(field) {
-  const pad = signaturePads.get(field.key);
+function getDataUrlSize(dataUrl) {
+  const base64 = dataUrl.split(",")[1] || "";
 
-  if (!pad) {
-    return field.image || "";
-  }
-
-  if (!pad.isEmpty()) {
-    return pad.toDataURL("image/png");
-  }
-
-  return field.image || "";
+  return Math.ceil((base64.length * 3) / 4);
 }
 
-function buildSignatureMetadata(field, image, signedAt) {
+function loadImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = dataUrl;
+  });
+}
+
+async function resizeSignatureImage(dataUrl) {
+  const image = await loadImage(dataUrl);
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  const scale = Math.min(
+    1,
+    SIGNATURE_MAX_WIDTH / sourceWidth,
+    SIGNATURE_MAX_HEIGHT / sourceHeight
+  );
+  const width = Math.max(1, Math.round(sourceWidth * scale));
+  const height = Math.max(1, Math.round(sourceHeight * scale));
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+
+  canvas.width = width;
+  canvas.height = height;
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, width, height);
+  context.drawImage(image, 0, 0, width, height);
+
+  const png = canvas.toDataURL("image/png");
+  const pngBytes = getDataUrlSize(png);
+
+  if (pngBytes <= SIGNATURE_MAX_BYTES) {
+    return {
+      image: png,
+      mimeType: "image/png",
+      width,
+      height,
+      bytes: pngBytes,
+    };
+  }
+
+  const jpeg = canvas.toDataURL("image/jpeg", SIGNATURE_JPEG_QUALITY);
+  const jpegBytes = getDataUrlSize(jpeg);
+  const shouldUseJpeg = jpegBytes < pngBytes;
+
+  return {
+    image: shouldUseJpeg ? jpeg : png,
+    mimeType: shouldUseJpeg ? "image/jpeg" : "image/png",
+    width,
+    height,
+    bytes: shouldUseJpeg ? jpegBytes : pngBytes,
+  };
+}
+
+async function getSignedImage(field) {
+  const pad = signaturePads.get(field.key);
+  const image =
+    pad && !pad.isEmpty() ? pad.toDataURL("image/png") : field.image || "";
+
+  if (!image) {
+    return null;
+  }
+
+  return resizeSignatureImage(image);
+}
+
+function buildSignatureMetadata(field, optimizedSignature, signedAt) {
   const metadata = Object.assign({}, field.metadata);
   delete metadata.signatureImage;
 
   metadata.signature = {
     fieldId: field.id,
     fieldKey: field.key,
-    image,
-    mimeType: "image/png",
+    image: optimizedSignature.image,
+    mimeType: optimizedSignature.mimeType,
+    width: optimizedSignature.width,
+    height: optimizedSignature.height,
+    bytes: optimizedSignature.bytes,
+    maxWidth: SIGNATURE_MAX_WIDTH,
+    maxHeight: SIGNATURE_MAX_HEIGHT,
     signedAt,
     signerName: values.parent || "",
   };
@@ -246,27 +315,27 @@ async function patchField(field, payload) {
 
 async function saveSignatureField(field) {
   const signedAt = new Date().toISOString();
-  const image = getSignedImage(field);
+  const optimizedSignature = await getSignedImage(field);
 
   if (!field.id) {
     throw new Error(`${field.metadata.label || "Signature"} is missing a backend field id.`);
   }
 
-  if (!image) {
+  if (!optimizedSignature) {
     throw new Error(`${field.metadata.label || "Signature"} is required.`);
   }
 
-  const metadata = buildSignatureMetadata(field, image, signedAt);
+  const metadata = buildSignatureMetadata(field, optimizedSignature, signedAt);
   const payloads = [
     {
-      amic_signatureimage: image,
-      amic_value: image,
+      amic_signatureimage: optimizedSignature.image,
+      amic_value: optimizedSignature.image,
       amic_signedat: signedAt,
       amic_signername: values.parent || "",
       amic_metadata: JSON.stringify(metadata),
     },
     {
-      amic_signatureimage: image,
+      amic_signatureimage: optimizedSignature.image,
       amic_metadata: JSON.stringify(metadata),
     },
     {
@@ -277,11 +346,13 @@ async function saveSignatureField(field) {
   for (const payload of payloads) {
     try {
       await patchField(field, payload);
-      field.image = image;
+      field.image = optimizedSignature.image;
       field.metadata = metadata;
       values[field.key] = {
         fieldId: field.id,
-        image,
+        image: optimizedSignature.image,
+        mimeType: optimizedSignature.mimeType,
+        bytes: optimizedSignature.bytes,
         signedAt,
       };
       return;
