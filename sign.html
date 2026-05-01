@@ -39,6 +39,10 @@
       background: #fff;
     }
 
+    .signature-card.invalid {
+      border-color: #dc2626;
+    }
+
     .signature-card header {
       display: flex;
       justify-content: space-between;
@@ -69,6 +73,13 @@
       touch-action: none;
     }
 
+    .signature-preview {
+      width: 100%;
+      height: 180px;
+      border: 1px solid #94a3b8;
+      background: #fff;
+    }
+
     .signature-img {
       width: 100%;
       height: 100%;
@@ -79,6 +90,25 @@
       display: flex;
       gap: 8px;
       padding: 0 12px 12px;
+    }
+
+    .signed-note {
+      color: #166534;
+      font-size: 13px;
+    }
+
+    .field-error,
+    .form-error {
+      color: #b91c1c;
+      font-size: 13px;
+    }
+
+    .field-error {
+      padding: 0 12px 12px;
+    }
+
+    .form-error {
+      margin: -8px 0 16px;
     }
 
     .message {
@@ -96,6 +126,7 @@
     <input data-key="parent" oninput="update('parent', this.value)" placeholder="Parent">
     <button onclick="submitForm()">Submit</button>
   </div>
+  <div id="form-error" class="form-error" hidden></div>
   <div id="signature-fields" class="signature-list">
     <div class="message">Loading signature fields...</div>
   </div>
