@@ -67,8 +67,6 @@
     .amic-field {
       position: absolute;
       z-index: 2;
-      min-width: 80px;
-      min-height: 24px;
       padding: 4px 8px;
       border: 1px solid #1d4ed8;
       background: rgba(37, 99, 235, 0.9);
@@ -76,12 +74,13 @@
       font-size: 14px;
       line-height: 1.2;
       cursor: move;
+      overflow: hidden;
       user-select: none;
+      touch-action: none;
     }
 
     .amic-field-signature {
-      min-width: 160px;
-      min-height: 48px;
+      padding-top: 8px;
     }
 
     .pdf-message,
