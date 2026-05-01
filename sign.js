@@ -47,7 +47,7 @@ function createMetadata(type, metadata) {
   return Object.assign(
     {
       label: type,
-      required: false,
+      required: type === "signature",
       unit: "percent",
     },
     metadata || {}
@@ -101,6 +101,7 @@ async function loadSignatureFields(documentId) {
 function fieldFromBackend(row) {
   const type = row.amic_type || "signature";
   const metadata = parseMetadata(row.amic_metadata, type);
+  const image = getSignatureImage(metadata);
 
   return {
     id: row.amic_fieldid || "",
@@ -108,8 +109,20 @@ function fieldFromBackend(row) {
     type,
     page: Number(row.amic_pagenumber || 1),
     metadata,
-    image: getSignatureImage(metadata),
+    image,
+    locked: Boolean(image),
   };
+}
+
+function setFormError(message) {
+  const errorEl = document.getElementById("form-error");
+
+  if (!errorEl) {
+    return;
+  }
+
+  errorEl.textContent = message || "";
+  errorEl.hidden = !message;
 }
 
 function showMessage(message) {
@@ -132,6 +145,8 @@ function renderSignatureFields() {
     return;
   }
 
+  setFormError("");
+
   signatureFields.forEach((field) => {
     const card = document.createElement("section");
     const header = document.createElement("header");
@@ -139,10 +154,15 @@ function renderSignatureFields() {
     const meta = document.createElement("div");
     const padWrap = document.createElement("div");
     const canvas = document.createElement("canvas");
+    const preview = document.createElement("div");
+    const signatureImg = document.createElement("img");
     const actions = document.createElement("div");
     const clearButton = document.createElement("button");
+    const status = document.createElement("div");
+    const error = document.createElement("div");
 
     card.className = "signature-card";
+    card.dataset.key = field.key;
     title.className = "signature-title";
     title.textContent = field.metadata.label || "Signature";
     meta.className = "signature-meta";
@@ -151,23 +171,50 @@ function renderSignatureFields() {
     canvas.className = "signature-pad";
     canvas.dataset.key = field.key;
     canvas.dataset.fieldId = field.id;
+    preview.className = "signature-preview";
+    signatureImg.className = "signature-img";
+    signatureImg.alt = `${field.metadata.label || "Signature"} image`;
+    signatureImg.src = field.image;
     actions.className = "signature-actions";
     clearButton.type = "button";
     clearButton.textContent = "Clear";
     clearButton.addEventListener("click", () => {
       const pad = signaturePads.get(field.key);
-      pad.clear();
+      if (pad) {
+        pad.clear();
+      }
       field.image = "";
+      clearFieldError(field.key);
     });
+    status.className = "signed-note";
+    status.textContent = getSignedStatus(field);
+    error.className = "field-error";
+    error.dataset.errorFor = field.key;
+    error.hidden = true;
 
     header.append(title, meta);
-    padWrap.appendChild(canvas);
-    actions.appendChild(clearButton);
+    if (field.locked && field.image) {
+      preview.appendChild(signatureImg);
+      padWrap.appendChild(preview);
+      actions.appendChild(status);
+    } else {
+      padWrap.appendChild(canvas);
+      actions.appendChild(clearButton);
+    }
     card.append(header, padWrap, actions);
+    card.appendChild(error);
     container.appendChild(card);
 
-    initializeSignaturePad(field, canvas);
+    if (!field.locked) {
+      initializeSignaturePad(field, canvas);
+    }
   });
+}
+
+function getSignedStatus(field) {
+  const signedAt = field.metadata.signature && field.metadata.signature.signedAt;
+
+  return signedAt ? `Signed ${new Date(signedAt).toLocaleString()}` : "Signed";
 }
 
 function initializeSignaturePad(field, canvas) {
@@ -184,6 +231,7 @@ function initializeSignaturePad(field, canvas) {
 
   pad.addEventListener("endStroke", () => {
     field.image = pad.toDataURL("image/png");
+    clearFieldError(field.key);
     values[field.key] = {
       fieldId: field.id,
       image: field.image,
@@ -217,6 +265,57 @@ function loadImage(dataUrl) {
     image.onerror = reject;
     image.src = dataUrl;
   });
+}
+
+function hasSignature(field) {
+  const pad = signaturePads.get(field.key);
+
+  return Boolean(field.image || (pad && !pad.isEmpty()));
+}
+
+function setFieldError(key, message) {
+  const card = document.querySelector(`.signature-card[data-key="${key}"]`);
+  const errorEl = document.querySelector(`[data-error-for="${key}"]`);
+
+  if (card) {
+    card.classList.toggle("invalid", Boolean(message));
+  }
+
+  if (errorEl) {
+    errorEl.textContent = message || "";
+    errorEl.hidden = !message;
+  }
+}
+
+function clearFieldError(key) {
+  setFieldError(key, "");
+  setFormError("");
+}
+
+function validateSignatures() {
+  const missingFields = signatureFields.filter((field) => !hasSignature(field));
+
+  signatureFields.forEach((field) => clearFieldError(field.key));
+
+  if (missingFields.length === 0) {
+    setFormError("");
+    return true;
+  }
+
+  missingFields.forEach((field) => {
+    setFieldError(field.key, `${field.metadata.label || "Signature"} is required.`);
+  });
+  setFormError("Complete all required signatures before submitting.");
+
+  const firstMissingCard = document.querySelector(
+    `.signature-card[data-key="${missingFields[0].key}"]`
+  );
+
+  if (firstMissingCard) {
+    firstMissingCard.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  return false;
 }
 
 async function resizeSignatureImage(dataUrl) {
@@ -315,6 +414,11 @@ async function patchField(field, payload) {
 
 async function saveSignatureField(field) {
   const signedAt = new Date().toISOString();
+
+  if (field.locked && field.image) {
+    return;
+  }
+
   const optimizedSignature = await getSignedImage(field);
 
   if (!field.id) {
@@ -347,6 +451,7 @@ async function saveSignatureField(field) {
     try {
       await patchField(field, payload);
       field.image = optimizedSignature.image;
+      field.locked = true;
       field.metadata = metadata;
       values[field.key] = {
         fieldId: field.id,
@@ -366,7 +471,11 @@ async function saveSignatureField(field) {
 
 async function submitForm() {
   if (signatureFields.length === 0) {
-    alert("No signature fields are available to submit.");
+    setFormError("No signature fields are available to submit.");
+    return;
+  }
+
+  if (!validateSignatures()) {
     return;
   }
 
@@ -375,8 +484,9 @@ async function submitForm() {
       await saveSignatureField(field);
     }
 
+    renderSignatureFields();
     alert("Saved");
   } catch (error) {
-    alert(error.message);
+    setFormError(error.message);
   }
 }
