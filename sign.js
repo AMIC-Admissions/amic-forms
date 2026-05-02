@@ -1,6 +1,8 @@
 let values = {};
 let fields = [];
 let pageDimensions = [];
+let originalPdfBytes = null;
+let originalPdfName = "filled-document.pdf";
 const signaturePads = new Map();
 
 const FIELD_DEFAULTS = {
@@ -84,7 +86,14 @@ async function renderPDFFile(file) {
     throw new Error("PDF renderer is not available.");
   }
 
-  const result = await AmicPDF.loadPDFFile(file, { container: "#pdf-container" });
+  setDownloadEnabled(false);
+  const data = await file.arrayBuffer();
+  setOriginalPdfBytes(data, file.name || originalPdfName);
+
+  const result = await AmicPDF.loadPDF(copyPdfBytes(data), {
+    container: "#pdf-container",
+    sourceName: file.name || "",
+  });
   updatePageDimensions(result.pages);
 }
 
@@ -93,8 +102,66 @@ async function renderPDFUrl(url) {
     throw new Error("PDF renderer is not available.");
   }
 
-  const result = await AmicPDF.loadPDFUrl(url, { container: "#pdf-container" });
+  setDownloadEnabled(false);
+  const data = await fetchPdfBytes(url);
+  setOriginalPdfBytes(data, url);
+
+  const result = await AmicPDF.loadPDF(copyPdfBytes(data), {
+    container: "#pdf-container",
+    sourceName: url,
+  });
   updatePageDimensions(result.pages);
+}
+
+async function fetchPdfBytes(url) {
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`Unable to load original PDF: ${await response.text()}`);
+  }
+
+  return response.arrayBuffer();
+}
+
+function copyPdfBytes(data) {
+  if (data instanceof ArrayBuffer) {
+    return data.slice(0);
+  }
+
+  if (ArrayBuffer.isView(data)) {
+    return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+  }
+
+  return data;
+}
+
+function setOriginalPdfBytes(data, sourceName) {
+  originalPdfBytes = copyPdfBytes(data);
+  originalPdfName = makeFilledPdfName(sourceName || originalPdfName);
+  setDownloadEnabled(Boolean(originalPdfBytes));
+}
+
+function setDownloadEnabled(enabled) {
+  const button = document.getElementById("download-pdf");
+
+  if (button) {
+    button.disabled = !enabled;
+  }
+}
+
+function makeFilledPdfName(sourceName) {
+  let nameSource = String(sourceName || "document.pdf");
+
+  try {
+    nameSource = new URL(nameSource, location.href).pathname;
+  } catch (_error) {
+    nameSource = nameSource.split("?")[0].split("#")[0];
+  }
+
+  const cleanName = nameSource.replaceAll(String.fromCharCode(92), "/").split("/").pop() || "document.pdf";
+  const pdfName = cleanName.toLowerCase().endsWith(".pdf") ? cleanName : `${cleanName}.pdf`;
+
+  return `${pdfName.slice(0, -4)}-filled.pdf`;
 }
 
 function updatePageDimensions(pages) {
@@ -218,6 +285,18 @@ function toBoolean(value) {
   return ["true", "1", "yes", "on"].includes(String(value || "").toLowerCase());
 }
 
+function isIsoDateValue(value) {
+  const parts = String(value || "").split("-");
+
+  return (
+    parts.length === 3 &&
+    parts[0].length === 4 &&
+    parts[1].length === 2 &&
+    parts[2].length === 2 &&
+    parts.every((part) => Array.from(part).every((character) => character >= "0" && character <= "9"))
+  );
+}
+
 function normalizeDateValue(value) {
   if (!value) {
     return "";
@@ -225,7 +304,7 @@ function normalizeDateValue(value) {
 
   const stringValue = String(value);
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(stringValue)) {
+  if (isIsoDateValue(stringValue)) {
     return stringValue;
   }
 
@@ -540,7 +619,7 @@ function getDataUrlSize(dataUrl) {
 }
 
 function isDataImage(value) {
-  return /^data:image\//.test(String(value || ""));
+  return String(value || "").toLowerCase().startsWith("data:image/");
 }
 
 function loadImage(dataUrl) {
@@ -589,6 +668,39 @@ function clearFieldError(key) {
   setFormError("");
 }
 
+function syncFieldValuesFromDom() {
+  fields.forEach((field) => {
+    const fieldEl = findFieldElement(field.key);
+
+    if (!fieldEl) {
+      return;
+    }
+
+    if (field.type === "checkbox") {
+      const checkbox = fieldEl.querySelector(".field-checkbox");
+      if (checkbox) {
+        field.value = checkbox.checked;
+      }
+      return;
+    }
+
+    if (field.type === "signature") {
+      const pad = signaturePads.get(field.key);
+      if (pad && !pad.isEmpty()) {
+        const image = pad.toDataURL("image/png");
+        field.value = image;
+        field.image = image;
+      }
+      return;
+    }
+
+    const input = fieldEl.querySelector(".field-control");
+    if (input) {
+      field.value = input.value;
+    }
+  });
+}
+
 function isRequired(field) {
   const required = field.metadata && field.metadata.required;
 
@@ -608,6 +720,7 @@ function fieldHasValue(field) {
 }
 
 function validateFields() {
+  syncFieldValuesFromDom();
   fields.forEach((field) => clearFieldError(field.key));
 
   const missingFields = fields.filter((field) => isRequired(field) && !fieldHasValue(field));
@@ -845,6 +958,408 @@ async function saveFieldValue(field) {
   }
 
   await saveValueField(field);
+}
+
+function getPdfWriterLibrary() {
+  if (!window.PDFLib) {
+    throw new Error("PDF generator is not available. Include pdf-lib before sign.js.");
+  }
+
+  return window.PDFLib;
+}
+
+function getPageElement(pageNumber) {
+  return document.querySelector(`.pdf-page[data-page-number="${pageNumber}"]`);
+}
+
+function getPdfPageSize(pdfPage) {
+  return pdfPage.getSize ? pdfPage.getSize() : { width: pdfPage.getWidth(), height: pdfPage.getHeight() };
+}
+
+function getPercentPdfBox(pdfPage, field) {
+  const pageSize = getPdfPageSize(pdfPage);
+  const width = (field.width / 100) * pageSize.width;
+  const height = (field.height / 100) * pageSize.height;
+  const x = (field.x / 100) * pageSize.width;
+  const top = (field.y / 100) * pageSize.height;
+
+  return {
+    x,
+    y: pageSize.height - top - height,
+    width,
+    height,
+  };
+}
+
+function getPdfBoxFromElement(pdfPage, field, element) {
+  const pageEl = getPageElement(field.page);
+
+  if (!pageEl || !element || !pageEl.getBoundingClientRect || !element.getBoundingClientRect) {
+    return null;
+  }
+
+  const pageRect = pageEl.getBoundingClientRect();
+  const elementRect = element.getBoundingClientRect();
+
+  if (!pageRect.width || !pageRect.height || !elementRect.width || !elementRect.height) {
+    return null;
+  }
+
+  const pageSize = getPdfPageSize(pdfPage);
+  const x = ((elementRect.left - pageRect.left) / pageRect.width) * pageSize.width;
+  const top = ((elementRect.top - pageRect.top) / pageRect.height) * pageSize.height;
+  const width = (elementRect.width / pageRect.width) * pageSize.width;
+  const height = (elementRect.height / pageRect.height) * pageSize.height;
+
+  return {
+    x,
+    y: pageSize.height - top - height,
+    width,
+    height,
+  };
+}
+
+function getFieldPdfBox(pdfPage, field, element) {
+  return getPdfBoxFromElement(pdfPage, field, element) || getPercentPdfBox(pdfPage, field);
+}
+
+function getPdfScaleForElement(pdfPage, field) {
+  const pageEl = getPageElement(field.page);
+
+  if (!pageEl || !pageEl.getBoundingClientRect) {
+    return { x: 1, y: 1 };
+  }
+
+  const pageRect = pageEl.getBoundingClientRect();
+
+  if (!pageRect.width || !pageRect.height) {
+    return { x: 1, y: 1 };
+  }
+
+  const pageSize = getPdfPageSize(pdfPage);
+
+  return {
+    x: pageSize.width / pageRect.width,
+    y: pageSize.height / pageRect.height,
+  };
+}
+
+function getFieldControlElement(field) {
+  const fieldEl = findFieldElement(field.key);
+
+  if (!fieldEl) {
+    return null;
+  }
+
+  if (field.type === "checkbox") {
+    return fieldEl.querySelector(".field-checkbox") || fieldEl;
+  }
+
+  if (field.type === "signature") {
+    return fieldEl.querySelector(".signature-preview") || fieldEl.querySelector(".signature-pad") || fieldEl;
+  }
+
+  return fieldEl.querySelector(".field-control") || fieldEl;
+}
+
+function getCssFontSize(element) {
+  if (!element || !window.getComputedStyle) {
+    return 14;
+  }
+
+  const fontSize = parseFloat(window.getComputedStyle(element).fontSize);
+
+  return Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 14;
+}
+
+function toPdfSafeText(value) {
+  return Array.from(String(value || ""))
+    .map((character) => {
+      const code = character.charCodeAt(0);
+      const isSupported =
+        code === 9 ||
+        code === 10 ||
+        code === 13 ||
+        (code >= 32 && code <= 126) ||
+        (code >= 160 && code <= 255);
+
+      return isSupported ? character : "?";
+    })
+    .join("");
+}
+
+function fitSingleLineText(text, font, size, maxWidth) {
+  const ellipsis = "...";
+  let fontSize = Math.max(5, size);
+  let safeText = toPdfSafeText(text);
+
+  while (fontSize > 5 && font.widthOfTextAtSize(safeText, fontSize) > maxWidth) {
+    fontSize -= 0.5;
+  }
+
+  if (font.widthOfTextAtSize(safeText, fontSize) <= maxWidth) {
+    return { text: safeText, fontSize };
+  }
+
+  while (safeText.length > 0 && font.widthOfTextAtSize(`${safeText}${ellipsis}`, fontSize) > maxWidth) {
+    safeText = safeText.slice(0, -1);
+  }
+
+  return {
+    text: safeText ? `${safeText}${ellipsis}` : "",
+    fontSize,
+  };
+}
+
+function formatDateForPdf(value) {
+  if (!value) {
+    return "";
+  }
+
+  const stringValue = String(value);
+
+  if (isIsoDateValue(stringValue)) {
+    const parts = stringValue.split("-");
+
+    return `${parts[1]}/${parts[2]}/${parts[0]}`;
+  }
+
+  const parsed = new Date(stringValue);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return stringValue;
+  }
+
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+
+  return `${month}/${day}/${parsed.getFullYear()}`;
+}
+
+function getPrintableFieldValue(field) {
+  if (field.type === "date") {
+    return formatDateForPdf(field.value);
+  }
+
+  return field.value == null ? "" : String(field.value);
+}
+
+function drawTextField(pdfPage, field, font, color) {
+  const value = getPrintableFieldValue(field);
+
+  if (!value) {
+    return;
+  }
+
+  const control = getFieldControlElement(field);
+  const box = getFieldPdfBox(pdfPage, field, control);
+  const scale = getPdfScaleForElement(pdfPage, field);
+  const paddingX = 3 * scale.x;
+  const maxWidth = Math.max(1, box.width - paddingX * 2);
+  const visualFontSize = getCssFontSize(control) * scale.y;
+  const targetFontSize = Math.max(5, Math.min(visualFontSize, box.height * 0.78));
+  const fitted = fitSingleLineText(value, font, targetFontSize, maxWidth);
+
+  if (!fitted.text) {
+    return;
+  }
+
+  pdfPage.drawText(fitted.text, {
+    x: box.x + paddingX,
+    y: box.y + Math.max(0, (box.height - fitted.fontSize) / 2) + fitted.fontSize * 0.18,
+    size: fitted.fontSize,
+    font,
+    color,
+  });
+}
+
+function drawCheckboxField(pdfPage, field, color) {
+  if (!field.value) {
+    return;
+  }
+
+  const control = getFieldControlElement(field);
+  const box = getFieldPdfBox(pdfPage, field, control);
+  const size = Math.min(box.width, box.height);
+  const x = box.x + (box.width - size) / 2;
+  const y = box.y + (box.height - size) / 2;
+  const thickness = Math.max(1, size * 0.12);
+
+  pdfPage.drawLine({
+    start: { x: x + size * 0.18, y: y + size * 0.5 },
+    end: { x: x + size * 0.4, y: y + size * 0.24 },
+    thickness,
+    color,
+  });
+  pdfPage.drawLine({
+    start: { x: x + size * 0.4, y: y + size * 0.24 },
+    end: { x: x + size * 0.84, y: y + size * 0.78 },
+    thickness,
+    color,
+  });
+}
+
+function dataUrlToBytes(dataUrl) {
+  const parts = String(dataUrl).split(",");
+  const header = parts[0] || "";
+  const base64 = parts[1] || "";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return {
+    bytes,
+    mimeType: header.startsWith("data:") ? header.slice(5).split(";")[0] : "image/png",
+  };
+}
+
+async function bytesFromImageSource(source) {
+  if (isDataImage(source)) {
+    return dataUrlToBytes(source);
+  }
+
+  const response = await fetch(source);
+
+  if (!response.ok) {
+    throw new Error(`Unable to load signature image: ${await response.text()}`);
+  }
+
+  return {
+    bytes: new Uint8Array(await response.arrayBuffer()),
+    mimeType: response.headers.get("Content-Type") || source,
+  };
+}
+
+async function embedImage(pdfDoc, source) {
+  const imageData = await bytesFromImageSource(source);
+  const mimeType = imageData.mimeType.toLowerCase();
+
+  if (mimeType.includes("jpg") || mimeType.includes("jpeg")) {
+    return pdfDoc.embedJpg(imageData.bytes);
+  }
+
+  return pdfDoc.embedPng(imageData.bytes);
+}
+
+function getSignatureSource(field) {
+  const pad = signaturePads.get(field.key);
+
+  if (pad && !pad.isEmpty()) {
+    return pad.toDataURL("image/png");
+  }
+
+  return (
+    field.image ||
+    field.value ||
+    field.metadata.signatureImage ||
+    (field.metadata.signature && field.metadata.signature.image) ||
+    (field.metadata.signature && field.metadata.signature.dataUrl) ||
+    ""
+  );
+}
+
+async function drawSignatureField(pdfDoc, pdfPage, field) {
+  const source = getSignatureSource(field);
+
+  if (!source) {
+    return;
+  }
+
+  const image = await embedImage(pdfDoc, source);
+  const control = getFieldControlElement(field);
+  const box = getFieldPdfBox(pdfPage, field, control);
+  const imageWidth = image.width || box.width;
+  const imageHeight = image.height || box.height;
+  const scale = Math.min(box.width / imageWidth, box.height / imageHeight);
+  const width = imageWidth * scale;
+  const height = imageHeight * scale;
+
+  pdfPage.drawImage(image, {
+    x: box.x + (box.width - width) / 2,
+    y: box.y + (box.height - height) / 2,
+    width,
+    height,
+  });
+}
+
+async function generateFilledPDF() {
+  if (!originalPdfBytes) {
+    throw new Error("Load the original PDF before downloading a filled copy.");
+  }
+
+  syncFieldValuesFromDom();
+
+  const { PDFDocument, StandardFonts, rgb } = getPdfWriterLibrary();
+  const pdfDoc = await PDFDocument.load(copyPdfBytes(originalPdfBytes));
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const color = rgb(15 / 255, 23 / 255, 42 / 255);
+  const pdfPages = pdfDoc.getPages();
+
+  for (const field of fields) {
+    const pdfPage = pdfPages[field.page - 1];
+
+    if (!pdfPage) {
+      continue;
+    }
+
+    if (field.type === "checkbox") {
+      drawCheckboxField(pdfPage, field, color);
+    } else if (field.type === "signature") {
+      await drawSignatureField(pdfDoc, pdfPage, field);
+    } else {
+      drawTextField(pdfPage, field, font, color);
+    }
+  }
+
+  return pdfDoc.save();
+}
+
+function triggerPdfDownload(pdfBytes, fileName) {
+  const blob = new Blob([pdfBytes], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+async function downloadFilledPDF() {
+  const button = document.getElementById("download-pdf");
+  const originalText = button ? button.textContent : "";
+
+  if (fields.length === 0) {
+    setFormError("No fields are available to download.");
+    return;
+  }
+
+  if (!validateFields()) {
+    return;
+  }
+
+  try {
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Generating...";
+    }
+
+    const pdfBytes = await generateFilledPDF();
+    triggerPdfDownload(pdfBytes, originalPdfName);
+    setFormError("");
+  } catch (error) {
+    setFormError(error.message);
+  } finally {
+    if (button) {
+      button.disabled = !originalPdfBytes;
+      button.textContent = originalText || "Download PDF";
+    }
+  }
 }
 
 async function submitForm() {
