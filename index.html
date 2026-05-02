@@ -1,8 +1,183 @@
-<!DOCTYPE html><html><body>
-<h2>AMIC Dashboard</h2>
-<input type="file" id="file"/>
-<button onclick="upload()">Upload</button>
-<table id="list"></table>
-<script src="../shared/api.js"></script>
-<script src="dashboard.js"></script>
-</body></html>
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AMIC Forms - لوحة التحكم</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --primary: #1e3a5f;
+      --primary-light: #2563eb;
+      --accent: #10b981;
+      --danger: #dc2626;
+      --text-primary: #1e293b;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      --border: #e2e8f0;
+      --bg-page: #f1f5f9;
+      --bg-card: #ffffff;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+      --shadow-md: 0 4px 12px rgba(0,0,0,0.12);
+      --radius-md: 10px;
+      --font-ar: 'Segoe UI', 'Tahoma', Arial, sans-serif;
+    }
+
+    body {
+      font-family: var(--font-ar);
+      background: var(--bg-page);
+      color: var(--text-primary);
+      direction: rtl;
+      min-height: 100vh;
+    }
+
+    .app-header {
+      background: var(--primary);
+      color: #fff;
+      padding: 0 16px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: var(--shadow-md);
+    }
+
+    .app-header-title { font-size: 1rem; font-weight: 700; }
+    .app-header-title span { color: #6ee7b7; }
+
+    .main { max-width: 800px; margin: 0 auto; padding: 20px 16px; }
+
+    h2 { font-size: 1.2rem; font-weight: 700; margin-bottom: 16px; color: var(--text-primary); }
+
+    .upload-section {
+      background: var(--bg-card);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .upload-section input[type="file"] {
+      flex: 1;
+      min-width: 200px;
+      font-family: var(--font-ar);
+      font-size: 0.85rem;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 9px 18px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      font-family: var(--font-ar);
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s ease;
+      text-decoration: none;
+    }
+
+    .btn-primary { background: var(--primary-light); color: #fff; }
+    .btn-primary:hover { background: #1d4ed8; }
+
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 0.8rem;
+    }
+
+    .message {
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      margin-bottom: 12px;
+    }
+
+    .message[hidden] { display: none; }
+    .message-error { background: #fef2f2; border: 1px solid #fecaca; color: var(--danger); }
+    .message-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #16a34a; }
+
+    .docs-table {
+      background: var(--bg-card);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+    }
+
+    .docs-table table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .docs-table th {
+      background: #f8fafc;
+      padding: 10px 14px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-align: right;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .docs-table td {
+      padding: 10px 14px;
+      font-size: 0.85rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+
+    .docs-table tr:last-child td { border-bottom: none; }
+
+    .empty-state {
+      text-align: center;
+      padding: 32px;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <span class="app-header-title">AMIC <span>Forms</span> – لوحة التحكم</span>
+  </header>
+
+  <main class="main">
+    <h2>إدارة النماذج</h2>
+
+    <div class="upload-section">
+      <input type="file" id="file" accept="application/pdf" placeholder="اختر ملف PDF">
+      <button class="btn btn-primary" onclick="upload()">رفع نموذج</button>
+    </div>
+
+    <div class="message message-error" id="error-msg" hidden></div>
+    <div class="message message-success" id="success-msg" hidden></div>
+
+    <div class="docs-table">
+      <table>
+        <thead>
+          <tr>
+            <th>اسم النموذج</th>
+            <th>الإجراءات</th>
+          </tr>
+        </thead>
+        <tbody id="list">
+          <tr><td colspan="2" class="empty-state">جاري التحميل...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="api.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>
