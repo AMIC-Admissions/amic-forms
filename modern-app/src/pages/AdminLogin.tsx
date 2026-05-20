@@ -6,6 +6,8 @@ import { useLogo } from '../contexts/LogoContext';
 import { supabase } from '../lib/supabase';
 import { ensureUserRole } from '../lib/auth';
 
+const adminEmail = (import.meta.env.VITE_ADMIN_EMAIL as string) || 'admin@amic.school';
+
 export default function AdminLogin() {
   const { t, lang, setLang, isRTL } = useLanguage();
   const { logoUrl } = useLogo();
@@ -20,7 +22,7 @@ export default function AdminLogin() {
     setError('');
     setLoading(true);
     const { data, error: authError } = await supabase.auth.signInWithPassword({
-      email: 'admin@amic.school',
+      email: adminEmail,
       password,
     });
     if (authError) {
@@ -171,8 +173,8 @@ export default function AdminLogin() {
 
             <p className="text-xs text-gray-400 mt-8 text-center leading-relaxed">
               {isRTL
-                ? 'حساب المشرف: admin@amic.school — يُنصح بتغيير كلمة المرور في الإنتاج'
-                : 'Admin account: admin@amic.school — Change the password in production'}
+                ? `حساب المشرف: ${adminEmail} — يُنصح بتغيير كلمة المرور في الإنتاج`
+                : `Admin account: ${adminEmail} — Change the password in production`}
             </p>
           </div>
         </div>
