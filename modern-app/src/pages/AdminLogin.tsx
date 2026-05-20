@@ -5,8 +5,9 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useLogo } from '../contexts/LogoContext';
 import { supabase } from '../lib/supabase';
 import { ensureUserRole } from '../lib/auth';
+import { env } from '../lib/env';
 
-const adminEmail = (import.meta.env.VITE_ADMIN_EMAIL as string) || 'admin@amic.school';
+const adminEmail = env.adminEmail;
 
 export default function AdminLogin() {
   const { t, lang, setLang, isRTL } = useLanguage();
